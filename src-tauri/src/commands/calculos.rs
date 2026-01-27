@@ -1,220 +1,299 @@
-use crate::models::{ApiResponse, Calculo, CalculoInput, CalculoUpdate};
+use crate::models::calculo::{Calculo, CalculoInput, TipoCalculo};
 use crate::services::supabase::SupabaseClient;
-use crate::utils::calculos::ejecutar_calculo;
+use crate::utils::calculos::{VigaInputs, VigaResultados, calcular_viga_fundacion as calcular_viga};
 use serde_json::json;
-use tauri::State;
-use uuid::Uuid;
 
-// ============================================================================
-// COMANDOS DE CÁLCULOS
-// ============================================================================
+// ========================================================================
+// COMANDOS EXISTENTES (mantener como están)
+// ========================================================================
 
-/// Obtener todos los cálculos de un proyecto
 #[tauri::command]
-pub async fn get_calculos(
-    supabase: State<'_, SupabaseClient>,
-    proyecto_id: String,
-) -> Result<ApiResponse<Vec<Calculo>>, String> {
-    let uuid = Uuid::parse_str(&proyecto_id)
-        .map_err(|e| format!("UUID inválido: {}", e))?;
-
-    let client = supabase.table("calculos")
-        .map_err(|e| e.to_string())?;
-
-    let response = client
-        .select("*")
-        .eq("proyecto_id", uuid.to_string())
-        .eq("activo", "true")
-        .order("created_at.desc")
-        .execute()
+pub async fn get_tipos_calculo(token: String) -> Result<Vec<TipoCalculo>, String> {
+    let client = SupabaseClient::new();
+    
+    let response = client.client
+        .get(&format!(
+            "{}?activo=eq.true&order=orden.asc",
+            client.rest_url("tipo_calculos")
+        ))
+        .headers(client.headers(Some(&token)))
+        .send()
         .await
         .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Error al obtener tipos de cálculo: {}", error_text));
+    }
+
+    let tipos: Vec<TipoCalculo> = response
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(tipos)
+}
+
+#[tauri::command]
+pub async fn get_calculos_proyecto(
+    token: String,
+    proyecto_id: String
+) -> Result<Vec<Calculo>, String> {
+    let client = SupabaseClient::new();
+    
+    let response = client.client
+        .get(&format!(
+            "{}?proyecto_id=eq.{}&activo=eq.true&order=created_at.desc",
+            client.rest_url("calculos"),
+            proyecto_id
+        ))
+        .headers(client.headers(Some(&token)))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Error al obtener cálculos: {}", error_text));
+    }
 
     let calculos: Vec<Calculo> = response
         .json()
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(ApiResponse::success(calculos))
+    Ok(calculos)
 }
 
-/// Obtener un cálculo específico por ID
 #[tauri::command]
-pub async fn get_calculo(
-    supabase: State<'_, SupabaseClient>,
-    calculo_id: String,
-) -> Result<ApiResponse<Calculo>, String> {
-    let uuid = Uuid::parse_str(&calculo_id)
-        .map_err(|e| format!("UUID inválido: {}", e))?;
-
-    let client = supabase.table("calculos")
-        .map_err(|e| e.to_string())?;
-
-    let response = client
-        .select("*")
-        .eq("id", uuid.to_string())
-        .single()
-        .execute()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let calculo: Calculo = response
-        .json()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(ApiResponse::success(calculo))
-}
-
-/// Crear un nuevo cálculo
-#[tauri::command]
-pub async fn create_calculo(
-    supabase: State<'_, SupabaseClient>,
-    calculo_input: CalculoInput,
-) -> Result<ApiResponse<Calculo>, String> {
-    let client = supabase.table("calculos")
-        .map_err(|e| e.to_string())?;
-
-    let response = client
-        .insert(json!({
-            "proyecto_id": calculo_input.proyecto_id,
-            "tipo_calculo_id": calculo_input.tipo_calculo_id,
-            "nombre": calculo_input.nombre,
-            "inputs": calculo_input.inputs,
-            "resultados": calculo_input.resultados,
-            "notas": calculo_input.notas,
-        }).to_string())
-        .execute()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let calculo: Calculo = response
-        .json()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(ApiResponse::success(calculo))
-}
-
-/// Actualizar un cálculo existente
-#[tauri::command]
-pub async fn update_calculo(
-    supabase: State<'_, SupabaseClient>,
-    calculo_id: String,
-    calculo_update: CalculoUpdate,
-) -> Result<ApiResponse<Calculo>, String> {
-    let uuid = Uuid::parse_str(&calculo_id)
-        .map_err(|e| format!("UUID inválido: {}", e))?;
-
-    let mut update_data = json!({});
+pub async fn get_calculo(token: String, calculo_id: String) -> Result<Calculo, String> {
+    let client = SupabaseClient::new();
     
-    if let Some(nombre) = calculo_update.nombre {
-        update_data["nombre"] = json!(nombre);
-    }
-    if let Some(inputs) = calculo_update.inputs {
-        update_data["inputs"] = inputs;
-    }
-    if let Some(resultados) = calculo_update.resultados {
-        update_data["resultados"] = resultados;
-    }
-    if let Some(notas) = calculo_update.notas {
-        update_data["notas"] = json!(notas);
-    }
-    if let Some(activo) = calculo_update.activo {
-        update_data["activo"] = json!(activo);
-    }
-
-    let client = supabase.table("calculos")
-        .map_err(|e| e.to_string())?;
-
-    let response = client
-        .update(update_data.to_string())
-        .eq("id", uuid.to_string())
-        .execute()
+    let response = client.client
+        .get(&format!(
+            "{}?id=eq.{}",
+            client.rest_url("calculos"),
+            calculo_id
+        ))
+        .headers(client.headers(Some(&token)))
+        .send()
         .await
         .map_err(|e| e.to_string())?;
 
-    let calculo: Calculo = response
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Error al obtener cálculo: {}", error_text));
+    }
+
+    let calculos: Vec<Calculo> = response
         .json()
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(ApiResponse::success(calculo))
+    calculos.into_iter().next()
+        .ok_or_else(|| "Cálculo no encontrado".to_string())
 }
 
-/// Eliminar un cálculo (soft delete)
 #[tauri::command]
-pub async fn delete_calculo(
-    supabase: State<'_, SupabaseClient>,
-    calculo_id: String,
-) -> Result<ApiResponse<bool>, String> {
-    let uuid = Uuid::parse_str(&calculo_id)
-        .map_err(|e| format!("UUID inválido: {}", e))?;
-
-    let client = supabase.table("calculos")
-        .map_err(|e| e.to_string())?;
-
-    client
-        .update(json!({"activo": false}).to_string())
-        .eq("id", uuid.to_string())
-        .execute()
+pub async fn crear_calculo(token: String, input: CalculoInput) -> Result<Calculo, String> {
+    let client = SupabaseClient::new();
+    
+    let response = client.client
+        .post(&client.rest_url("calculos"))
+        .headers(client.headers(Some(&token)))
+        .header("Prefer", "return=representation")
+        .json(&json!({
+            "proyecto_id": input.proyecto_id,
+            "tipo_calculo_id": input.tipo_calculo_id,
+            "nombre": input.nombre,
+            "inputs": input.inputs,
+            "resultados": input.resultados,
+            "notas": input.notas
+        }))
+        .send()
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(ApiResponse::success(true))
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Error al crear cálculo: {}", error_text));
+    }
+
+    let calculos: Vec<Calculo> = response
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    calculos.into_iter().next()
+        .ok_or_else(|| "Error al crear cálculo".to_string())
 }
 
-/// Ejecutar cálculo de materiales y guardarlo
 #[tauri::command]
-pub async fn calcular_y_guardar(
-    supabase: State<'_, SupabaseClient>,
-    proyecto_id: String,
-    tipo_calculo_codigo: String,
-    tipo_calculo_id: i32,
-    nombre: Option<String>,
-    inputs: serde_json::Value,
-    notas: Option<String>,
-) -> Result<ApiResponse<Calculo>, String> {
-    // 1. Ejecutar el cálculo
-    let resultados = ejecutar_calculo(&tipo_calculo_codigo, inputs.clone())
-        .map_err(|e| format!("Error al calcular: {}", e))?;
-
-    // 2. Crear el cálculo en la BD
-    let proyecto_uuid = Uuid::parse_str(&proyecto_id)
-        .map_err(|e| format!("UUID inválido: {}", e))?;
-
-    let calculo_input = CalculoInput {
-        proyecto_id: proyecto_uuid,
-        tipo_calculo_id,
-        nombre,
-        inputs,
-        resultados,
-        notas,
-    };
-
-    create_calculo(supabase, calculo_input).await
-}
-
-/// Recalcular un cálculo existente
-#[tauri::command]
-pub async fn recalcular(
-    supabase: State<'_, SupabaseClient>,
+pub async fn actualizar_calculo(
+    token: String,
     calculo_id: String,
-    tipo_calculo_codigo: String,
-    inputs: serde_json::Value,
-) -> Result<ApiResponse<Calculo>, String> {
-    // 1. Ejecutar el cálculo
-    let resultados = ejecutar_calculo(&tipo_calculo_codigo, inputs.clone())
-        .map_err(|e| format!("Error al calcular: {}", e))?;
+    input: CalculoInput
+) -> Result<Calculo, String> {
+    let client = SupabaseClient::new();
+    
+    let response = client.client
+        .patch(&format!(
+            "{}?id=eq.{}",
+            client.rest_url("calculos"),
+            calculo_id
+        ))
+        .headers(client.headers(Some(&token)))
+        .header("Prefer", "return=representation")
+        .json(&json!({
+            "nombre": input.nombre,
+            "inputs": input.inputs,
+            "resultados": input.resultados,
+            "notas": input.notas
+        }))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
 
-    // 2. Actualizar el cálculo
-    let calculo_update = CalculoUpdate {
-        nombre: None,
-        inputs: Some(inputs),
-        resultados: Some(resultados),
-        notas: None,
-        activo: None,
-    };
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Error al actualizar cálculo: {}", error_text));
+    }
 
-    update_calculo(supabase, calculo_id, calculo_update).await
+    let calculos: Vec<Calculo> = response
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    calculos.into_iter().next()
+        .ok_or_else(|| "Error al actualizar cálculo".to_string())
+}
+
+#[tauri::command]
+pub async fn eliminar_calculo(token: String, calculo_id: String) -> Result<(), String> {
+    let client = SupabaseClient::new();
+    
+    let response = client.client
+        .patch(&format!(
+            "{}?id=eq.{}",
+            client.rest_url("calculos"),
+            calculo_id
+        ))
+        .headers(client.headers(Some(&token)))
+        .json(&json!({
+            "activo": false
+        }))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Error al eliminar cálculo: {}", error_text));
+    }
+
+    Ok(())
+}
+
+// ========================================================================
+// NUEVOS COMANDOS
+// ========================================================================
+
+/// Ejecutar cálculo de viga de fundación (solo cálculo, no guarda)
+#[tauri::command]
+pub fn calcular_viga_fundacion(inputs: VigaInputs) -> Result<VigaResultados, String> {
+    let (resultados, _materiales) = calcular_viga(inputs);
+    Ok(resultados)
+}
+
+/// Crear cálculo completo: calcula, guarda el cálculo y asocia los materiales
+#[tauri::command]
+pub async fn crear_calculo_completo(
+    token: String,
+    proyecto_id: String,
+    nombre: Option<String>,
+    inputs: VigaInputs
+) -> Result<Calculo, String> {
+    let client = SupabaseClient::new();
+    
+    // 1. Ejecutar cálculo
+    let (resultados, materiales) = calcular_viga(inputs.clone());
+    
+    // 2. Crear el cálculo en la BD
+    let calculo_input = json!({
+        "proyecto_id": proyecto_id,
+        "tipo_calculo_id": 1, // Viga de fundación
+        "nombre": nombre,
+        "inputs": json!(inputs),
+        "resultados": json!(resultados)
+    });
+    
+    let response = client.client
+        .post(&client.rest_url("calculos"))
+        .headers(client.headers(Some(&token)))
+        .header("Prefer", "return=representation")
+        .json(&calculo_input)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Error al crear cálculo: {}", error_text));
+    }
+
+    let calculos: Vec<Calculo> = response
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let calculo = calculos.into_iter().next()
+        .ok_or_else(|| "Error al crear cálculo".to_string())?;
+    
+    // 3. Obtener IDs de materiales por código
+    let materiales_response = client.client
+        .get(&format!(
+            "{}?select=id,codigo&activo=eq.true",
+            client.rest_url("materiales")
+        ))
+        .headers(client.headers(Some(&token)))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !materiales_response.status().is_success() {
+        return Ok(calculo); // Retornar el cálculo aunque no se puedan agregar materiales
+    }
+
+    #[derive(serde::Deserialize)]
+    struct MaterialCodigo {
+        id: String,
+        codigo: Option<String>,
+    }
+
+    let materiales_bd: Vec<MaterialCodigo> = materiales_response
+        .json()
+        .await
+        .unwrap_or_default();
+
+    // 4. Insertar cada material en calculo_materiales
+    for material_calc in materiales {
+        // Buscar el ID del material por código
+        if let Some(material_bd) = materiales_bd.iter().find(|m| {
+            m.codigo.as_ref().map(|c| c.as_str()) == Some(&material_calc.codigo_material)
+        }) {
+            // Insertar en calculo_materiales
+            let _ = client.client
+                .post(&client.rest_url("calculo_materiales"))
+                .headers(client.headers(Some(&token)))
+                .json(&json!({
+                    "calculo_id": calculo.id,
+                    "material_id": material_bd.id,
+                    "cantidad": material_calc.cantidad
+                }))
+                .send()
+                .await;
+        }
+    }
+    
+    Ok(calculo)
 }
