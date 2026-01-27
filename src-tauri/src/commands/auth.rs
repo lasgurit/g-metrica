@@ -1,145 +1,106 @@
-use crate::models::ApiResponse;
-use crate::services::supabase::{
-    SupabaseClient, AuthResponse, LoginCredentials, SignupCredentials
-};
-use tauri::State;
+use crate::models::usuario::{AuthResponse, LoginCredentials, Perfil, RegisterInput};
+use crate::services::supabase::SupabaseClient;
+use serde_json::json;
 
-// ============================================================================
-// COMANDOS DE AUTENTICACIÓN
-// ============================================================================
-
-/// Iniciar sesión
 #[tauri::command]
-pub async fn login(
-    supabase: State<'_, SupabaseClient>,
-    email: String,
-    password: String,
-) -> Result<ApiResponse<AuthResponse>, String> {
-    let credentials = LoginCredentials { email, password };
+pub async fn login(email: String, password: String) -> Result<AuthResponse, String> {
+    let client = SupabaseClient::new();
     
-    let auth_response = supabase.login(credentials)
+    let response = client.client
+        .post(&client.auth_url("token?grant_type=password"))
+        .headers(client.headers(None))
+        .json(&LoginCredentials { email, password })
+        .send()
         .await
         .map_err(|e| e.to_string())?;
 
-    // Después del login exitoso, crear o actualizar el perfil
-    let _ = update_ultima_sesion(&supabase).await;
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Error de autenticación: {}", error_text));
+    }
 
-    Ok(ApiResponse::success(auth_response))
+    let auth_response: AuthResponse = response
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(auth_response)
 }
 
-/// Registrar nuevo usuario
 #[tauri::command]
-pub async fn signup(
-    supabase: State<'_, SupabaseClient>,
+pub async fn register(
     email: String,
     password: String,
     nombre: String,
-    empresa: Option<String>,
-) -> Result<ApiResponse<AuthResponse>, String> {
-    let credentials = SignupCredentials {
-        email,
-        password,
-        nombre: nombre.clone(),
-        empresa: empresa.clone(),
-    };
+    empresa: Option<String>
+) -> Result<AuthResponse, String> {
+    let client = SupabaseClient::new();
     
-    let auth_response = supabase.signup(credentials)
+    // 1. Registrar usuario en auth
+    let auth_response = client.client
+        .post(&client.auth_url("signup"))
+        .headers(client.headers(None))
+        .json(&json!({
+            "email": email,
+            "password": password
+        }))
+        .send()
         .await
         .map_err(|e| e.to_string())?;
 
-    // Crear el perfil del usuario
-    let user_id = auth_response.user.id.clone();
-    let _ = create_perfil(&supabase, user_id, nombre, empresa).await;
+    if !auth_response.status().is_success() {
+        let error_text = auth_response.text().await.unwrap_or_default();
+        return Err(format!("Error al registrar: {}", error_text));
+    }
 
-    Ok(ApiResponse::success(auth_response))
-}
-
-/// Cerrar sesión
-#[tauri::command]
-pub async fn logout(
-    supabase: State<'_, SupabaseClient>,
-) -> Result<ApiResponse<bool>, String> {
-    supabase.logout()
+    let auth_data: AuthResponse = auth_response
+        .json()
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(ApiResponse::success(true))
-}
-
-/// Verificar si el usuario está autenticado
-#[tauri::command]
-pub fn is_authenticated(
-    supabase: State<'_, SupabaseClient>,
-) -> Result<ApiResponse<bool>, String> {
-    let is_auth = supabase.is_authenticated();
-    Ok(ApiResponse::success(is_auth))
-}
-
-/// Establecer token manualmente (para restaurar sesión)
-#[tauri::command]
-pub fn set_auth_token(
-    supabase: State<'_, SupabaseClient>,
-    token: String,
-) -> Result<ApiResponse<bool>, String> {
-    supabase.set_token(token);
-    Ok(ApiResponse::success(true))
-}
-
-/// Obtener el token actual
-#[tauri::command]
-pub fn get_auth_token(
-    supabase: State<'_, SupabaseClient>,
-) -> Result<ApiResponse<Option<String>>, String> {
-    let token = supabase.get_token();
-    Ok(ApiResponse::success(token))
-}
-
-// ============================================================================
-// FUNCIONES AUXILIARES
-// ============================================================================
-
-/// Crear perfil de usuario después del registro
-async fn create_perfil(
-    supabase: &SupabaseClient,
-    user_id: String,
-    nombre: String,
-    empresa: Option<String>,
-) -> Result<(), String> {
-    let client = supabase.table("perfiles")
-        .map_err(|e| e.to_string())?;
-
-    let perfil_data = serde_json::json!({
-        "id": user_id,
-        "nombre": nombre,
-        "empresa": empresa,
-        "activo": true
-    });
-
-    client
-        .insert(perfil_data.to_string())
-        .execute()
+    // 2. Crear perfil en tabla perfiles
+    let _perfil_response = client.client
+        .post(&client.rest_url("perfiles"))
+        .headers(client.headers(Some(&auth_data.access_token)))
+        .json(&json!({
+            "id": auth_data.user.id,
+            "nombre": nombre,
+            "empresa": empresa
+        }))
+        .send()
         .await
         .map_err(|e| e.to_string())?;
 
+    Ok(auth_data)
+}
+
+#[tauri::command]
+pub async fn logout() -> Result<(), String> {
+    // En el frontend se limpia el token guardado
     Ok(())
 }
 
-/// Actualizar última sesión del usuario
-async fn update_ultima_sesion(
-    supabase: &SupabaseClient,
-) -> Result<(), String> {
-    let client = supabase.table("perfiles")
-        .map_err(|e| e.to_string())?;
-
-    let now = chrono::Utc::now().to_rfc3339();
-
-    client
-        .update(serde_json::json!({
-            "ultima_sesion": now
-        }).to_string())
-        .execute()
+#[tauri::command]
+pub async fn get_perfil(token: String, user_id: String) -> Result<Perfil, String> {
+    let client = SupabaseClient::new();
+    
+    let response = client.client
+        .get(&format!("{}?id=eq.{}", client.rest_url("perfiles"), user_id))
+        .headers(client.headers(Some(&token)))
+        .send()
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(())
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Error al obtener perfil: {}", error_text));
+    }
+
+    let perfiles: Vec<Perfil> = response
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    perfiles.into_iter().next()
+        .ok_or_else(|| "Perfil no encontrado".to_string())
 }

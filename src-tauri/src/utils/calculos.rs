@@ -1,207 +1,266 @@
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+// src-tauri/src/utils/calculos.rs
 
-// ============================================================================
-// ESTRUCTURAS PARA INPUTS Y RESULTADOS
-// ============================================================================
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VigaFundacionInput {
+pub struct VigaInputs {
     pub longitud: f64,           // metros
     pub ancho: f64,              // metros
     pub alto: f64,               // metros
     pub diametro_hierro: u8,     // mm (6, 8, 10, 12)
-    #[serde(default = "default_barras_longitudinales")]
-    pub cantidad_barras_longitudinales: u8,  // default: 4
-    #[serde(default = "default_separacion_estribos")]
-    pub separacion_estribos: f64,            // metros, default: 0.20
-    #[serde(default = "default_dosificacion_cemento")]
-    pub dosificacion_cemento: f64,           // kg/m³, default: 300
 }
 
-fn default_barras_longitudinales() -> u8 { 4 }
-fn default_separacion_estribos() -> f64 { 0.20 }
-fn default_dosificacion_cemento() -> f64 { 300.0 }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VigaFundacionResultado {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VigaResultados {
     pub volumen_hormigon: f64,
-    pub hierro_longitudinal_barras: u32,
-    pub hierro_estribos_barras: u32,
-    pub alambre_atar_kg: f64,
-    pub cemento_bolsas: u32,
+    pub cemento_bolsas: f64,
     pub arena_m3: f64,
     pub piedra_m3: f64,
+    pub hierro_longitudinal_barras: f64,
+    pub hierro_estribos_barras: f64,
+    pub alambre_kg: f64,
     pub agua_litros: f64,
-    pub materiales: HashMap<String, f64>,  // Para guardar en la BD
 }
 
-// ============================================================================
-// CONSTANTES
-// ============================================================================
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MaterialCalculado {
+    pub codigo_material: String,
+    pub cantidad: f64,
+}
 
-const LONGITUD_BARRA_COMERCIAL: f64 = 12.0; // metros
-const PESO_BOLSA_CEMENTO: f64 = 25.0;       // kg
-const SOLAPE_ESTRIBO: f64 = 0.20;           // metros
-const ALAMBRE_POR_UNION: f64 = 0.12;        // metros
-const METROS_ALAMBRE_POR_KG: f64 = 50.0;    // metros/kg (aproximado)
-const AGUA_POR_M3: f64 = 190.0;             // litros/m³
+/// Valida los inputs antes de calcular
+fn validar_inputs(inputs: &VigaInputs) -> Result<(), String> {
+    // Validar que sean valores positivos
+    if inputs.longitud <= 0.0 {
+        return Err("La longitud debe ser mayor a cero".to_string());
+    }
+    if inputs.ancho <= 0.0 {
+        return Err("El ancho debe ser mayor a cero".to_string());
+    }
+    if inputs.alto <= 0.0 {
+        return Err("El alto debe ser mayor a cero".to_string());
+    }
+    
+    // Validar rangos razonables para vigas de fundación
+    if inputs.longitud > 50.0 {
+        return Err("La longitud máxima soportada es 50 metros".to_string());
+    }
+    
+    if inputs.ancho < 0.10 || inputs.ancho > 1.0 {
+        return Err("El ancho debe estar entre 0.10m y 1.0m".to_string());
+    }
+    
+    if inputs.alto < 0.15 || inputs.alto > 1.5 {
+        return Err("El alto debe estar entre 0.15m y 1.5m".to_string());
+    }
+    
+    // Validar diámetro permitido
+    if ![6, 8, 10, 12].contains(&inputs.diametro_hierro) {
+        return Err("El diámetro de hierro debe ser 6, 8, 10 o 12 mm".to_string());
+    }
+    
+    Ok(())
+}
 
-// ============================================================================
-// CÁLCULO DE VIGA DE FUNDACIÓN
-// ============================================================================
-
-pub fn calcular_viga_fundacion(input: VigaFundacionInput) -> VigaFundacionResultado {
-    // ------------------------------------------------------------------------
+pub fn calcular_viga_fundacion(inputs: VigaInputs) -> (VigaResultados, Vec<MaterialCalculado>) {
+    // Validar inputs - si falla, devolver resultados vacíos
+    if let Err(_) = validar_inputs(&inputs) {
+        return (
+            VigaResultados {
+                volumen_hormigon: 0.0,
+                cemento_bolsas: 0.0,
+                arena_m3: 0.0,
+                piedra_m3: 0.0,
+                hierro_longitudinal_barras: 0.0,
+                hierro_estribos_barras: 0.0,
+                alambre_kg: 0.0,
+                agua_litros: 0.0,
+            },
+            vec![]
+        );
+    }
+    
+    // ========================================================================
     // 1. VOLUMEN DE HORMIGÓN
-    // ------------------------------------------------------------------------
-    let volumen = input.longitud * input.ancho * input.alto;
+    // ========================================================================
+    let volumen_hormigon = inputs.longitud * inputs.ancho * inputs.alto;
     
-    // ------------------------------------------------------------------------
-    // 2. HIERRO LONGITUDINAL
-    // ------------------------------------------------------------------------
-    let longitud_total_longitudinal = input.longitud * input.cantidad_barras_longitudinales as f64;
-    let barras_longitudinales = (longitud_total_longitudinal / LONGITUD_BARRA_COMERCIAL).ceil() as u32;
+    // ========================================================================
+    // 2. DOSIFICACIÓN SEGÚN ESPECIFICACIONES DE LA ARQUITECTA
+    // ========================================================================
+    // Cemento: 300 kg por m³ = 12 bolsas de 25kg por m³
+    let cemento_bolsas = volumen_hormigon * 12.0;
     
-    // ------------------------------------------------------------------------
-    // 3. ESTRIBOS
-    // ------------------------------------------------------------------------
-    let perimetro_estribo = 2.0 * (input.ancho + input.alto);
-    let longitud_por_estribo = perimetro_estribo + SOLAPE_ESTRIBO;
+    // Arena: 50% del volumen (según especificación)
+    let arena_m3 = volumen_hormigon * 0.5;
     
-    let cantidad_estribos = (input.longitud / input.separacion_estribos).ceil() as u32;
-    let longitud_total_estribos = cantidad_estribos as f64 * longitud_por_estribo;
-    let barras_estribos = (longitud_total_estribos / LONGITUD_BARRA_COMERCIAL).ceil() as u32;
+    // Piedra: 50% del volumen (según especificación)
+    let piedra_m3 = volumen_hormigon * 0.5;
     
-    // ------------------------------------------------------------------------
-    // 4. ALAMBRE DE ATAR
-    // ------------------------------------------------------------------------
-    let puntos_atadura = 4; // 4 puntos por estribo
-    let total_uniones = cantidad_estribos * puntos_atadura;
-    let metros_alambre = total_uniones as f64 * ALAMBRE_POR_UNION;
-    let kg_alambre = (metros_alambre / METROS_ALAMBRE_POR_KG).ceil();
+    // ========================================================================
+    // 3. HIERRO LONGITUDINAL (4 barras corridas)
+    // ========================================================================
+    // Longitud total necesaria = longitud × 4 barras
+    let longitud_total_longitudinal = inputs.longitud * 4.0;
     
-    // ------------------------------------------------------------------------
-    // 5. MATERIALES PARA HORMIGÓN
-    // ------------------------------------------------------------------------
+    // Cada barra comercial tiene 12 metros
+    let hierro_longitudinal_barras = longitud_total_longitudinal / 12.0;
     
-    // Arena (50% del volumen + 10% desperdicio)
-    let arena = (volumen * 0.50 * 1.10).ceil() * 100.0 / 100.0; // Redondear a 2 decimales
+    // ========================================================================
+    // 4. ESTRIBOS (hierro transversal)
+    // ========================================================================
+    // Configuración: un estribo cada 20 cm (0.20 m)
+    let cantidad_estribos = inputs.longitud / 0.2;
     
-    // Piedra (50% del volumen + 10% desperdicio)
-    let piedra = (volumen * 0.50 * 1.10).ceil() * 100.0 / 100.0;
+    // Perímetro del estribo = 2 × (ancho + alto)
+    let perimetro_base = 2.0 * (inputs.ancho + inputs.alto);
     
-    // Cemento
-    let kg_cemento = volumen * input.dosificacion_cemento;
-    let bolsas_cemento = (kg_cemento / PESO_BOLSA_CEMENTO).ceil() as u32;
+    // Agregar 20cm de solape por estribo (según especificación)
+    let longitud_por_estribo = perimetro_base + 0.20;
     
-    // Agua
-    let litros_agua = (volumen * AGUA_POR_M3).round();
+    // Longitud total de hierro para estribos
+    let longitud_total_estribos = cantidad_estribos * longitud_por_estribo;
     
-    // ------------------------------------------------------------------------
-    // 6. CREAR MAPA DE MATERIALES
-    // ------------------------------------------------------------------------
-    let mut materiales = HashMap::new();
+    // Cantidad de barras comerciales de 12m
+    let hierro_estribos_barras = longitud_total_estribos / 12.0;
     
-    // Códigos deben coincidir con los de la tabla 'materiales' en Supabase
-    materiales.insert(
-        format!("hierro_{}mm", input.diametro_hierro), 
-        (barras_longitudinales + barras_estribos) as f64
-    );
-    materiales.insert("alambre_atar".to_string(), kg_alambre);
-    materiales.insert("cemento_25kg".to_string(), bolsas_cemento as f64);
-    materiales.insert("arena".to_string(), arena);
-    materiales.insert("piedra".to_string(), piedra);
-    materiales.insert("agua".to_string(), litros_agua);
+    // ========================================================================
+    // 5. ALAMBRE DE ATAR
+    // ========================================================================
+    // Total de uniones = cantidad de estribos × 4 puntos de atadura
+    let total_uniones = cantidad_estribos * 4.0;
     
-    // ------------------------------------------------------------------------
-    // 7. RETORNAR RESULTADO
-    // ------------------------------------------------------------------------
-    VigaFundacionResultado {
-        volumen_hormigon: (volumen * 1000.0).round() / 1000.0, // 3 decimales
-        hierro_longitudinal_barras: barras_longitudinales,
-        hierro_estribos_barras: barras_estribos,
-        alambre_atar_kg: kg_alambre,
-        cemento_bolsas: bolsas_cemento,
-        arena_m3: arena,
-        piedra_m3: piedra,
-        agua_litros: litros_agua,
-        materiales,
-    }
-}
-
-// ============================================================================
-// FUNCIÓN GENÉRICA PARA EJECUTAR CÁLCULOS
-// ============================================================================
-
-pub fn ejecutar_calculo(tipo_calculo: &str, inputs: serde_json::Value) -> Result<serde_json::Value, String> {
-    match tipo_calculo {
-        "viga_fundacion" => {
-            let input: VigaFundacionInput = serde_json::from_value(inputs)
-                .map_err(|e| format!("Error al parsear inputs: {}", e))?;
-            
-            let resultado = calcular_viga_fundacion(input);
-            
-            serde_json::to_value(resultado)
-                .map_err(|e| format!("Error al serializar resultado: {}", e))
+    // Alambre por unión ≈ 0.12 m (12 cm)
+    let alambre_metros = total_uniones * 0.12;
+    
+    // 1 kg de alambre ≈ 50 metros lineales
+    let alambre_kg = alambre_metros / 50.0;
+    
+    // ========================================================================
+    // 6. AGUA
+    // ========================================================================
+    // 180-200 litros por m³, usamos 190 litros como promedio
+    let agua_litros = volumen_hormigon * 190.0;
+    
+    // ========================================================================
+    // 7. CREAR ESTRUCTURA DE RESULTADOS
+    // ========================================================================
+    let resultados = VigaResultados {
+        volumen_hormigon,
+        cemento_bolsas,
+        arena_m3,
+        piedra_m3,
+        hierro_longitudinal_barras,
+        hierro_estribos_barras,
+        alambre_kg,
+        agua_litros,
+    };
+    
+    // ========================================================================
+    // 8. CREAR LISTA DE MATERIALES CON CÓDIGOS
+    // ========================================================================
+    let codigo_hierro = match inputs.diametro_hierro {
+        6 => "hierro_6mm",
+        8 => "hierro_8mm",
+        10 => "hierro_10mm",
+        12 => "hierro_12mm",
+        _ => "hierro_8mm", // Por defecto
+    };
+    
+    // Total de barras de hierro = longitudinales + estribos
+    let total_hierro_barras = hierro_longitudinal_barras + hierro_estribos_barras;
+    
+    let materiales = vec![
+        MaterialCalculado {
+            codigo_material: "cemento_25kg".to_string(),
+            cantidad: cemento_bolsas,
         },
-        _ => Err(format!("Tipo de cálculo '{}' no implementado", tipo_calculo))
-    }
+        MaterialCalculado {
+            codigo_material: "arena".to_string(),
+            cantidad: arena_m3,
+        },
+        MaterialCalculado {
+            codigo_material: "piedra".to_string(),
+            cantidad: piedra_m3,
+        },
+        MaterialCalculado {
+            codigo_material: codigo_hierro.to_string(),
+            cantidad: total_hierro_barras,
+        },
+        MaterialCalculado {
+            codigo_material: "alambre_atar".to_string(),
+            cantidad: alambre_kg,
+        },
+        MaterialCalculado {
+            codigo_material: "agua".to_string(),
+            cantidad: agua_litros,
+        },
+    ];
+    
+    (resultados, materiales)
 }
-
-// ============================================================================
-// TESTS
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_viga_fundacion_basico() {
-        let input = VigaFundacionInput {
+    fn test_viga_20_metros_ejemplo_arquitecta() {
+        let inputs = VigaInputs {
             longitud: 20.0,
             ancho: 0.15,
             alto: 0.25,
             diametro_hierro: 12,
-            cantidad_barras_longitudinales: 4,
-            separacion_estribos: 0.20,
-            dosificacion_cemento: 300.0,
         };
 
-        let resultado = calcular_viga_fundacion(input);
+        let (resultados, materiales) = calcular_viga_fundacion(inputs);
 
-        // Verificar volumen
-        assert!((resultado.volumen_hormigon - 0.75).abs() < 0.01);
+        // Volumen = 20 × 0.15 × 0.25 = 0.75 m³
+        assert!((resultados.volumen_hormigon - 0.75).abs() < 0.01);
         
-        // Verificar hierro longitudinal
-        assert_eq!(resultado.hierro_longitudinal_barras, 7);
+        // Cemento = 0.75 × 12 = 9 bolsas
+        assert!((resultados.cemento_bolsas - 9.0).abs() < 0.01);
         
-        // Verificar cemento
-        assert_eq!(resultado.cemento_bolsas, 9);
+        // Arena = 0.75 × 0.5 = 0.375 m³
+        assert!((resultados.arena_m3 - 0.375).abs() < 0.01);
         
-        // Verificar arena y piedra
-        assert!(resultado.arena_m3 >= 0.37 && resultado.arena_m3 <= 0.45);
-        assert!(resultado.piedra_m3 >= 0.37 && resultado.piedra_m3 <= 0.45);
+        // Piedra = 0.75 × 0.5 = 0.375 m³
+        assert!((resultados.piedra_m3 - 0.375).abs() < 0.01);
+        
+        // Hierro longitudinal = (20 × 4) / 12 = 6.67 barras
+        assert!((resultados.hierro_longitudinal_barras - 6.666666).abs() < 0.01);
+        
+        // Estribos: 100 estribos × 1m c/u = 100m / 12 = 8.33 barras
+        assert!((resultados.hierro_estribos_barras - 8.333333).abs() < 0.1);
+        
+        // Agua = 0.75 × 190 = 142.5 litros
+        assert!((resultados.agua_litros - 142.5).abs() < 0.5);
+        
+        // Debe tener 6 materiales
+        assert_eq!(materiales.len(), 6);
     }
-
+    
     #[test]
-    fn test_materiales_map() {
-        let input = VigaFundacionInput {
-            longitud: 10.0,
+    fn test_validacion_longitud_negativa() {
+        let inputs = VigaInputs {
+            longitud: -5.0,
             ancho: 0.15,
             alto: 0.25,
-            diametro_hierro: 10,
-            cantidad_barras_longitudinales: 4,
-            separacion_estribos: 0.20,
-            dosificacion_cemento: 300.0,
+            diametro_hierro: 12,
         };
-
-        let resultado = calcular_viga_fundacion(input);
-
-        assert!(resultado.materiales.contains_key("hierro_10mm"));
-        assert!(resultado.materiales.contains_key("cemento_25kg"));
-        assert!(resultado.materiales.contains_key("arena"));
-        assert!(resultado.materiales.contains_key("piedra"));
+        
+        assert!(validar_inputs(&inputs).is_err());
+    }
+    
+    #[test]
+    fn test_validacion_dimensiones_muy_grandes() {
+        let inputs = VigaInputs {
+            longitud: 100.0, // Mayor a 50m
+            ancho: 0.15,
+            alto: 0.25,
+            diametro_hierro: 12,
+        };
+        
+        assert!(validar_inputs(&inputs).is_err());
     }
 }

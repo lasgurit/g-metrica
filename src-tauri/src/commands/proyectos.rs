@@ -1,196 +1,195 @@
-use crate::models::{ApiResponse, Proyecto, ProyectoInput, ProyectoUpdate, ResumenMaterial};
+use crate::models::proyecto::{Proyecto, ProyectoInput};
 use crate::services::supabase::SupabaseClient;
 use serde_json::json;
-use tauri::State;
-use uuid::Uuid;
 
-// ============================================================================
-// COMANDOS DE PROYECTOS
-// ============================================================================
-
-/// Obtener todos los proyectos del usuario
 #[tauri::command]
-pub async fn get_proyectos(
-    supabase: State<'_, SupabaseClient>,
-) -> Result<ApiResponse<Vec<Proyecto>>, String> {
-    let client = supabase.table("proyectos")
-        .map_err(|e| e.to_string())?;
-
-    let response = client
-        .select("*")
-        .order("created_at.desc")
-        .execute()
+pub async fn get_proyectos(token: String, usuario_id: String) -> Result<Vec<Proyecto>, String> {
+    let client = SupabaseClient::new();
+    
+    let response = client.client
+        .get(&format!(
+            "{}?usuario_id=eq.{}&activo=eq.true&order=created_at.desc",
+            client.rest_url("proyectos"),
+            usuario_id
+        ))
+        .headers(client.headers(Some(&token)))
+        .send()
         .await
         .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Error al obtener proyectos: {}", error_text));
+    }
 
     let proyectos: Vec<Proyecto> = response
         .json()
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(ApiResponse::success(proyectos))
+    Ok(proyectos)
 }
 
-/// Obtener un proyecto específico por ID
 #[tauri::command]
-pub async fn get_proyecto(
-    supabase: State<'_, SupabaseClient>,
-    proyecto_id: String,
-) -> Result<ApiResponse<Proyecto>, String> {
-    let uuid = Uuid::parse_str(&proyecto_id)
-        .map_err(|e| format!("UUID inválido: {}", e))?;
-
-    let client = supabase.table("proyectos")
-        .map_err(|e| e.to_string())?;
-
-    let response = client
-        .select("*")
-        .eq("id", uuid.to_string())
-        .single()
-        .execute()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let proyecto: Proyecto = response
-        .json()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(ApiResponse::success(proyecto))
-}
-
-/// Crear un nuevo proyecto
-#[tauri::command]
-pub async fn create_proyecto(
-    supabase: State<'_, SupabaseClient>,
-    proyecto_input: ProyectoInput,
-) -> Result<ApiResponse<Proyecto>, String> {
-    let client = supabase.table("proyectos")
-        .map_err(|e| e.to_string())?;
-
-    let response = client
-        .insert(json!({
-            "nombre": proyecto_input.nombre,
-            "descripcion": proyecto_input.descripcion,
-            "ubicacion": proyecto_input.ubicacion,
-        }).to_string())
-        .execute()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let proyecto: Proyecto = response
-        .json()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(ApiResponse::success(proyecto))
-}
-
-/// Actualizar un proyecto existente
-#[tauri::command]
-pub async fn update_proyecto(
-    supabase: State<'_, SupabaseClient>,
-    proyecto_id: String,
-    proyecto_update: ProyectoUpdate,
-) -> Result<ApiResponse<Proyecto>, String> {
-    let uuid = Uuid::parse_str(&proyecto_id)
-        .map_err(|e| format!("UUID inválido: {}", e))?;
-
-    let mut update_data = json!({});
+pub async fn get_proyecto(token: String, proyecto_id: String) -> Result<Proyecto, String> {
+    let client = SupabaseClient::new();
     
-    if let Some(nombre) = proyecto_update.nombre {
-        update_data["nombre"] = json!(nombre);
-    }
-    if let Some(descripcion) = proyecto_update.descripcion {
-        update_data["descripcion"] = json!(descripcion);
-    }
-    if let Some(ubicacion) = proyecto_update.ubicacion {
-        update_data["ubicacion"] = json!(ubicacion);
-    }
-    if let Some(activo) = proyecto_update.activo {
-        update_data["activo"] = json!(activo);
-    }
-
-    let client = supabase.table("proyectos")
-        .map_err(|e| e.to_string())?;
-
-    let response = client
-        .update(update_data.to_string())
-        .eq("id", uuid.to_string())
-        .execute()
+    let response = client.client
+        .get(&format!(
+            "{}?id=eq.{}",
+            client.rest_url("proyectos"),
+            proyecto_id
+        ))
+        .headers(client.headers(Some(&token)))
+        .send()
         .await
         .map_err(|e| e.to_string())?;
 
-    let proyecto: Proyecto = response
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Error al obtener proyecto: {}", error_text));
+    }
+
+    let proyectos: Vec<Proyecto> = response
         .json()
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(ApiResponse::success(proyecto))
+    proyectos.into_iter().next()
+        .ok_or_else(|| "Proyecto no encontrado".to_string())
 }
 
-/// Eliminar un proyecto (soft delete)
 #[tauri::command]
-pub async fn delete_proyecto(
-    supabase: State<'_, SupabaseClient>,
-    proyecto_id: String,
-) -> Result<ApiResponse<bool>, String> {
-    let uuid = Uuid::parse_str(&proyecto_id)
-        .map_err(|e| format!("UUID inválido: {}", e))?;
-
-    let client = supabase.table("proyectos")
-        .map_err(|e| e.to_string())?;
-
-    client
-        .update(json!({"activo": false}).to_string())
-        .eq("id", uuid.to_string())
-        .execute()
+pub async fn crear_proyecto(
+    token: String,
+    usuario_id: String,
+    input: ProyectoInput
+) -> Result<Proyecto, String> {
+    let client = SupabaseClient::new();
+    
+    let response = client.client
+        .post(&client.rest_url("proyectos"))
+        .headers(client.headers(Some(&token)))
+        .header("Prefer", "return=representation")
+        .json(&json!({
+            "usuario_id": usuario_id,
+            "nombre": input.nombre,
+            "descripcion": input.descripcion,
+            "ubicacion": input.ubicacion
+        }))
+        .send()
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(ApiResponse::success(true))
-}
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Error al crear proyecto: {}", error_text));
+    }
 
-/// Eliminar permanentemente un proyecto
-#[tauri::command]
-pub async fn hard_delete_proyecto(
-    supabase: State<'_, SupabaseClient>,
-    proyecto_id: String,
-) -> Result<ApiResponse<bool>, String> {
-    let uuid = Uuid::parse_str(&proyecto_id)
-        .map_err(|e| format!("UUID inválido: {}", e))?;
-
-    let client = supabase.table("proyectos")
-        .map_err(|e| e.to_string())?;
-
-    client
-        .delete()
-        .eq("id", uuid.to_string())
-        .execute()
+    let proyectos: Vec<Proyecto> = response
+        .json()
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(ApiResponse::success(true))
+    proyectos.into_iter().next()
+        .ok_or_else(|| "Error al crear proyecto".to_string())
 }
 
-/// Obtener resumen de materiales de un proyecto usando la función RPC
 #[tauri::command]
-pub async fn get_resumen_proyecto(
-    supabase: State<'_, SupabaseClient>,
+pub async fn actualizar_proyecto(
+    token: String,
     proyecto_id: String,
-) -> Result<ApiResponse<Vec<ResumenMaterial>>, String> {
-    let uuid = Uuid::parse_str(&proyecto_id)
-        .map_err(|e| format!("UUID inválido: {}", e))?;
-
-    let response = supabase.rpc(
-        "obtener_resumen_proyecto",
-        json!({ "proyecto_uuid": uuid })
-    )
-    .await
-    .map_err(|e| e.to_string())?;
-
-    let materiales: Vec<ResumenMaterial> = serde_json::from_str(&response)
+    input: ProyectoInput
+) -> Result<Proyecto, String> {
+    let client = SupabaseClient::new();
+    
+    let response = client.client
+        .patch(&format!(
+            "{}?id=eq.{}",
+            client.rest_url("proyectos"),
+            proyecto_id
+        ))
+        .headers(client.headers(Some(&token)))
+        .header("Prefer", "return=representation")
+        .json(&json!({
+            "nombre": input.nombre,
+            "descripcion": input.descripcion,
+            "ubicacion": input.ubicacion
+        }))
+        .send()
+        .await
         .map_err(|e| e.to_string())?;
 
-    Ok(ApiResponse::success(materiales))
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Error al actualizar proyecto: {}", error_text));
+    }
+
+    let proyectos: Vec<Proyecto> = response
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    proyectos.into_iter().next()
+        .ok_or_else(|| "Error al actualizar proyecto".to_string())
+}
+
+#[tauri::command]
+pub async fn eliminar_proyecto(token: String, proyecto_id: String) -> Result<(), String> {
+    let client = SupabaseClient::new();
+    
+    // Soft delete: marcamos como inactivo
+    let response = client.client
+        .patch(&format!(
+            "{}?id=eq.{}",
+            client.rest_url("proyectos"),
+            proyecto_id
+        ))
+        .headers(client.headers(Some(&token)))
+        .json(&json!({
+            "activo": false
+        }))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Error al eliminar proyecto: {}", error_text));
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn buscar_proyectos(
+    token: String,
+    usuario_id: String,
+    termino: String
+) -> Result<Vec<Proyecto>, String> {
+    let client = SupabaseClient::new();
+    
+    let response = client.client
+        .get(&format!(
+            "{}?usuario_id=eq.{}&activo=eq.true&nombre=ilike.*{}*&order=created_at.desc",
+            client.rest_url("proyectos"),
+            usuario_id,
+            termino
+        ))
+        .headers(client.headers(Some(&token)))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Error al buscar proyectos: {}", error_text));
+    }
+
+    let proyectos: Vec<Proyecto> = response
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(proyectos)
 }
