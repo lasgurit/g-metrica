@@ -285,7 +285,7 @@ pub async fn get_resumen_proyecto(
     let client = SupabaseClient::new();
     
     let response = client.client
-        .post(&format!("{}/rpc/obtener_resumen_proyecto", client.base_url))
+        .post(&client.rest_url("rpc/obtener_resumen_proyecto"))
         .headers(client.headers(Some(&token)))
         .json(&json!({
             "proyecto_uuid": proyecto_id

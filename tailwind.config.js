@@ -1,88 +1,85 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: [
-    "./index.html",
-    "./src/**/*.{vue,js,ts,jsx,tsx}",
-  ],
+  content: ["./index.html", "./src/**/*.{vue,js,ts,jsx,tsx}"],
+  darkMode: "class",
   theme: {
     extend: {
       colors: {
-        // Paleta de colores G-Métrica
-        brand: {
-          // F1876F - Color principal de marca (coral/salmón)
-          50: '#fef5f3',
-          100: '#fde9e4',
-          200: '#fcd3c9',
-          300: '#f9b4a3',
-          400: '#f5917d',
-          500: '#F1876F',  // Color principal
-          600: '#e96d4d',
-          700: '#d8542f',
-          800: '#b54426',
-          900: '#933a22',
+        // Color principal de GMétrica (coral/naranja)
+        primary: {
+          DEFAULT: "#FF8A71",
+          50: "#FFF4F1",
+          100: "#FFE9E3",
+          200: "#FFD3C7",
+          300: "#FFBDAB",
+          400: "#FFA38E",
+          500: "#FF8A71", // Color principal
+          600: "#FF6B4D",
+          700: "#FF4D29",
+          800: "#E6340F",
+          900: "#B82800",
         },
-        brown: {
-          // 732416 - Para acentos puntuales (marrón terracota)
-          50: '#faf6f5',
-          100: '#f3ebe8',
-          200: '#e4d3cd',
-          300: '#d0b3a8',
-          400: '#b58a7c',
-          500: '#9d6b5b',
-          600: '#8a5649',
-          700: '#732416',  // Acento principal
-          800: '#5f1e12',
-          900: '#4e1910',
+
+        // Fondos
+        background: {
+          light: "#F9FAFB",
+          dark: "#111827",
         },
-        sky: {
-          // CCE4F8 - Para soporte, datos, UI (azul cielo)
-          50: '#f0f8ff',
-          100: '#e0f0fe',
-          200: '#CCE4F8',  // Color principal
-          300: '#a6d5f5',
-          400: '#7ec2f0',
-          500: '#5aaeeb',
-          600: '#3d8fd9',
-          700: '#2e73b8',
-          800: '#295f96',
-          900: '#274f7b',
+
+        // Superficies (cards, modales, etc)
+        surface: {
+          light: "#FFFFFF",
+          dark: "#1F2937",
         },
-        beige: {
-          // F5F4E2 - Fondo base (beige cálido)
-          50: '#fcfcfa',
-          100: '#F5F4E2',  // Fondo principal
-          200: '#eeecca',
-          300: '#e5e1b8',
-          400: '#ddd79f',
-          500: '#d3cb86',
-          600: '#c4b567',
-          700: '#a89549',
-          800: '#88763a',
-          900: '#6e5f30',
+
+        // Sidebar
+        sidebar: {
+          light: "#FFFFFF",
+          dark: "#0B1120",
         },
-        // Grises neutros para complementar
-        neutral: {
-          50: '#fafafa',
-          100: '#f5f5f5',
-          200: '#e5e5e5',
-          300: '#d4d4d4',
-          400: '#a3a3a3',
-          500: '#737373',
-          600: '#525252',
-          700: '#404040',
-          800: '#262626',
-          900: '#171717',
-        }
+
+        // Bordes
+        border: {
+          light: "#E5E7EB",
+          dark: "#374151",
+        },
       },
+
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        sans: ["Inter", "system-ui", "sans-serif"],
+        display: ["Inter", "system-ui", "sans-serif"],
       },
+
+      borderRadius: {
+        DEFAULT: "0.75rem", // 12px
+        sm: "0.5rem", // 8px
+        md: "0.75rem", // 12px
+        lg: "1rem", // 16px
+        xl: "1.5rem", // 24px
+        "2xl": "2rem", // 32px
+      },
+
       boxShadow: {
-        'soft': '0 2px 8px rgba(115, 36, 22, 0.08)',
-        'soft-lg': '0 8px 24px rgba(115, 36, 22, 0.12)',
-        'brand': '0 4px 12px rgba(241, 135, 111, 0.3)',
-      }
+        primary: "0 10px 40px -10px rgba(255, 138, 113, 0.3)",
+        "primary-lg": "0 20px 60px -15px rgba(255, 138, 113, 0.4)",
+      },
+
+      animation: {
+        "scale-in": "scaleIn 0.2s ease-out",
+        "fade-in": "fadeIn 0.3s ease-out",
+      },
+
+      keyframes: {
+        scaleIn: {
+          "0%": { transform: "scale(0.95)", opacity: "0" },
+          "100%": { transform: "scale(1)", opacity: "1" },
+        },
+        fadeIn: {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
+      },
     },
   },
-  plugins: [],
-}
+  plugins: [require("@tailwindcss/forms"), require("@tailwindcss/typography")],
+};

@@ -1,0 +1,90 @@
+/* ===============================
+   Fuentes y iconos globales
+   =============================== */
+
+/* Fuente principal del sistema */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap");
+
+/* Iconos Material Icons Round */
+@import url("https://fonts.googleapis.com/icon?family=Material+Icons+Round");
+
+/* ===============================
+   Tailwind base
+   =============================== */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===============================
+   Estilos base globales
+   =============================== */
+@layer base {
+  body {
+    /* Fuente base y renderizado más suave */
+    @apply font-sans antialiased;
+  }
+
+  * {
+    /* Color de borde por defecto para light y dark mode */
+    @apply border-border-light dark:border-border-dark;
+  }
+}
+
+/* ===============================
+   Componentes reutilizables
+   =============================== */
+@layer components {
+  /* -------- Scrollbar personalizado -------- */
+
+  .custom-scrollbar::-webkit-scrollbar {
+    /* Ancho del scrollbar */
+    @apply w-1.5;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    /* Fondo del track */
+    @apply bg-transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    /* Color y forma del thumb */
+    @apply bg-slate-300 dark:bg-slate-700 rounded-full;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    /* Color al pasar el mouse */
+    @apply bg-slate-400 dark:bg-slate-600;
+  }
+
+  /* -------- Overlay para modales -------- */
+
+  .modal-overlay {
+    /* Efecto blur detrás del modal */
+    backdrop-filter: blur(4px);
+    @apply bg-slate-900/60 dark:bg-black/80;
+  }
+
+  /* -------- Transiciones suaves -------- */
+
+  .transition-smooth {
+    /* Transiciones globales reutilizables */
+    @apply transition-all duration-200 ease-out;
+  }
+}
+
+/* ===============================
+   Utilidades personalizadas
+   =============================== */
+@layer utilities {
+  /* Mejor balanceo de texto en títulos largos */
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* -------- Glassmorphism -------- */
+  .glass {
+    /* Fondo translúcido con blur para cards y panels */
+    @apply backdrop-blur-md bg-white/80 dark:bg-slate-900/80;
+  }
+}
