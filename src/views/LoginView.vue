@@ -79,7 +79,7 @@
                     :type="showPassword ? 'text' : 'password'"
                     placeholder="••••••••"
                     required
-                    class="w-full pl-12 pr-12 py-3 rounded-xl border border-border-light dark:border-border-dark bg-white dark:bg-surface-dark text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
+                    class="w-full pl-12 pr-12 py-3 rounded-xl border border-border-light dark:border-border-dark bg-white dark:bg-surface-dark text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all password-input"
                     :class="
                       formErrors.password
                         ? 'border-red-500 focus:ring-red-500'
@@ -259,5 +259,18 @@ const handleLogin = async () => {
   background-image:
     linear-gradient(#1f2937 1px, transparent 1px),
     linear-gradient(90deg, #1f2937 1px, transparent 1px);
+}
+
+/* Eliminar el ojo nativo del navegador en campos de contraseña */
+.password-input::-ms-reveal,
+.password-input::-ms-clear {
+  display: none;
+}
+
+.password-input::-webkit-contacts-auto-fill-button,
+.password-input::-webkit-credentials-auto-fill-button {
+  visibility: hidden;
+  position: absolute;
+  right: 0;
 }
 </style>
